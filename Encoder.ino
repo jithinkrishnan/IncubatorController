@@ -9,12 +9,14 @@
 #define DHT1          2
 #define DHTTYPE       DHT22
 
-#define HOME_MENU         0  
+#define HOME_MENU         4
+#define SET_MENU          5 
+
+#define TEMPERATURE_MENU  0
+#define HUMIDITY_MENU     1
 #define DATE_TIME_MENU    2
-#define TEMPERATURE_MENU  3
-#define HUMIDITY_MENU     4
-#define CALIBER_MENU      5
-#define SET_MENU          1
+#define CALIBER_MENU      3
+
 
 RotaryEncoder encoder(A2, A3);
 LiquidCrystal_I2C lcd(0x27,20,4);
@@ -26,18 +28,21 @@ bool  buttonMinus, buttonPlus, EncPushSW;
 const byte buttonEnter = 5; // Encoder Press Switch
 static int pos = 0;
 static int dir = 0;
+static int CursorFreez = 0;
 
-float temp;
-float humidity;
+float temp, ActTemp;
+float humidity = 0, ActHumi = 0;
 int menu_idx = HOME_MENU;
 int  prev_menu_idx = HOME_MENU;
 unsigned long currentMillis = 0;
 unsigned long previousMillis = 0;
-int buttonState;
-int lastButtonState = LOW;
-unsigned long lastDebounceTime = 0;
+int buttonState, buttonState_1, buttonState_2;
+int lastButtonState = LOW, lastButtonState_1 = LOW, lastButtonState_2 = LOW;
+unsigned long lastDebounceTime = 0, lastDebounceTime_1 = 0, lastDebounceTime_2 = 0;
 unsigned long debounceDelay = 50;
 char curPos = 0, PrevcurPos = 0;
+char curPos_subMenu = 0, PrevcurPos_subMenu = 0;
+char menuLevel[4] = {2, 2, 2, 3};
 
 uint8_t CharTemp[8] = {B01110, B01010, B01010, B01110, B01110, B11111, B11111, B01110};
 uint8_t CharHumi[8] = {B00100, B01110, B11111, B00100, B10001, B00100, B10001, B00100};
@@ -84,28 +89,40 @@ void enc_fun () {
  if (reading != lastButtonState) {
     lastDebounceTime = millis();
   }
-
+   
   if ((millis() - lastDebounceTime) > debounceDelay) {
     if (reading != buttonState) {
       buttonState = reading;
       if (buttonState == HIGH) {
           if (menu_idx == HOME_MENU)
               menu_idx = SET_MENU;
-          else if (menu_idx == SET_MENU && (curPos == 4)) // Exit from Settings menu
-                   menu_idx = HOME_MENU;
-          else if (menu_idx == SET_MENU && (curPos == 0)) // Temperature
-                   menu_idx = TEMPERATURE_MENU;
-          else if (menu_idx == SET_MENU && (curPos == 1)) // Humidity Menu
-                   menu_idx = HUMIDITY_MENU;
-          else if (menu_idx == SET_MENU && (curPos == 2)) // Date & Time
-                   menu_idx = DATE_TIME_MENU;
-          else if (menu_idx == SET_MENU && (curPos == 3)) // Caliberation
-                   menu_idx = CALIBER_MENU;                                 
+              
+          else if (menu_idx == SET_MENU) {
+          switch(curPos) {
+            case 0:
+            menu_idx = TEMPERATURE_MENU; // Temperature
+            break;
+            case 1:
+            menu_idx = HUMIDITY_MENU;    // Humidity Menu
+            break;
+            case 2:
+            menu_idx = DATE_TIME_MENU;  // Date & Time
+            break;
+            case 3:
+            menu_idx = CALIBER_MENU;    // Caliberation
+            break;
+            case 4:
+            menu_idx = HOME_MENU;
+            break;
+         }
+          
+        }                                
       }
     }
   }
 lastButtonState = reading;
 
+ if( menu_idx == SET_MENU) {
    if(dir == 1) {
      if (curPos > 4)
          curPos = 4; 
@@ -116,7 +133,23 @@ lastButtonState = reading;
             curPos = 0;
         else        
             curPos--; 
-    } 
+      } 
+   } else if((menu_idx == TEMPERATURE_MENU ||
+             menu_idx == HUMIDITY_MENU || 
+             menu_idx == DATE_TIME_MENU || 
+             menu_idx == CALIBER_MENU) && CursorFreez) {
+       if(dir == 1) {
+     if (curPos_subMenu > menuLevel[menu_idx])
+         curPos_subMenu = menuLevel[menu_idx]; 
+     else       
+         curPos_subMenu++; 
+     } else if (dir == -1) {
+        if (curPos_subMenu <= 0)
+            curPos_subMenu = 0;
+        else        
+            curPos_subMenu--; 
+      } 
+   }
 }
 
 
@@ -133,17 +166,17 @@ void ShowCursor() {
         lcd.setCursor(13, 3);
         lcd.print(">");
       }
-  } else if( (menu_idx == DATE_TIME_MENU) || (menu_idx == TEMPERATURE_MENU) || (menu_idx == HUMIDITY_MENU ) || (menu_idx == CALIBER_MENU) ) {
-     if (PrevcurPos != curPos) {
+  } else if((menu_idx == DATE_TIME_MENU) || 
+            (menu_idx == TEMPERATURE_MENU) ||
+            (menu_idx == HUMIDITY_MENU) ||
+            (menu_idx == CALIBER_MENU) && CursorFreez) {
+     if (PrevcurPos_subMenu != curPos_subMenu) {
           lcd.clear();
-          PrevcurPos = curPos;
+          PrevcurPos_subMenu = curPos_subMenu;
       }
-      if (curPos < 2 ) {
-        lcd.setCursor(0, 1);
-        lcd.print(">");
-      } else {
-        lcd.setCursor(1, 1);
-        lcd.print(">");
+      if (curPos_subMenu < menuLevel[menu_idx] ) {
+          lcd.setCursor(0, curPos_subMenu);
+          lcd.print(">");
       }
   }
       
@@ -177,6 +210,9 @@ void showTempHumidity() {
 }
 
 void menu(char menu_idx) {
+  int reading;
+  char dir;
+  
   if(prev_menu_idx!= menu_idx) {
       lcd.clear();
       prev_menu_idx = menu_idx;
@@ -193,25 +229,101 @@ void menu(char menu_idx) {
     lcd.setCursor(1, 0);
     lcd.print("DATE_TIME_MENU");
     lcd.setCursor(1, 1);
-    lcd.print("EXIT");
+    lcd.print("BACK");
     break;
     case TEMPERATURE_MENU:
     lcd.setCursor(1, 0);
     lcd.print("TEMPERATURE_MENU");
     lcd.setCursor(1, 1);
-    lcd.print("EXIT");
+    lcd.print("BACK");
     break;
     case HUMIDITY_MENU:
     lcd.setCursor(1, 0);
     lcd.print("HUMIDITY_MENU");
     lcd.setCursor(1, 1);
-    lcd.print("EXIT");
+    lcd.print("BACK");
     break;
     case CALIBER_MENU:
+    /* Sensor read temperature Value (Measured value) */
     lcd.setCursor(1, 0);
-    lcd.print("CALIBER_MENU");
+    lcd.write(1);
+    AddSpace(1);
+    lcd.print(temp, 1);
+    lcd.write(3);
+    lcd.print("C");
+    AddSpace(2);
+    lcd.write(1);
+    AddSpace(1);
+    if(curPos_subMenu == 0) {
+    reading = digitalRead(buttonEnter);
+    if (reading != lastButtonState_1) {
+      lastDebounceTime_1 = millis();
+    }
+    if ((millis() - lastDebounceTime_1) > debounceDelay) {
+    if (reading != buttonState_1) {
+      buttonState_1 = reading;
+      if (buttonState_1 == HIGH) {
+          CursorFreez = !CursorFreez;
+          Serial.print("Temp : CursorFreez = ");
+          Serial.println(CursorFreez);
+        }
+      }
+     }
+        lastButtonState_1 = reading;
+        dir = encoder.getDirection();
+        if (!CursorFreez) {
+        if (dir == 1) {
+            ActTemp = ActTemp + 0.5;
+        }
+        else if (dir == -1) {
+            ActTemp = ActTemp - 0.5;;  
+        }
+       }
+    } 
+    lcd.setCursor(13, 0);
+    lcd.print(ActTemp, 1);
+    lcd.write(3);
+    lcd.print("C");
+    /* Sensor read humidity Value (Measured value) */
     lcd.setCursor(1, 1);
-    lcd.print("EXIT");
+    lcd.write(2);
+    AddSpace(1);
+    lcd.print(humidity, 1);
+    lcd.print("%");
+    AddSpace(3);
+    lcd.write(2);
+
+    if(curPos_subMenu == 1) {
+       reading = digitalRead(buttonEnter);
+    if (reading != lastButtonState_2) {
+      lastDebounceTime_2 = millis();
+    }
+    if ((millis() - lastDebounceTime_2) > debounceDelay) {
+    if (reading != buttonState_2) {
+      buttonState_2 = reading;
+      if (buttonState_2 == HIGH) {
+          CursorFreez = !CursorFreez;
+         Serial.print("Humi : CursorFreez = ");
+            Serial.println(CursorFreez);
+        }
+      }
+    }
+    lastButtonState_2 = reading;
+    dir = encoder.getDirection();
+    if (!CursorFreez) {
+        if (dir == 1) {
+            ActHumi = ActHumi + 0.5;
+        }
+        else if (dir == -1) {
+            ActHumi = ActHumi - 0.5; 
+        }
+      }        
+    }
+    lcd.setCursor(13, 1);
+    lcd.print(ActHumi, 1);
+    lcd.print("%");
+    lcd.setCursor(1, 2);
+    lcd.print("BACK");
     break;
     
   }
@@ -227,7 +339,7 @@ void Settings() {
   lcd.setCursor(1, 3);
   lcd.print("Calibration");
   lcd.setCursor(14, 3);
-  lcd.print("Exit");
+  lcd.print("Home");
 }
 
 void homemenu(void) {
